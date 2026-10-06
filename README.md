@@ -86,4 +86,8 @@ Ghost 在模拟过程中按 60 Hz 采样，保存时按时间重采样，保留�
 
 将 `dist/` 的**内容**作为站点根目录发布。资源使用相对路径，可部署在 GitHub Pages 的 repository 子路径；构建包含 `.nojekyll`。其他静态托管服务也可以直接使用该目录。
 
-当前交付包含源码、静态产物和视频，尚未创建远端 repository 或公开发布。GitHub Pages 的发布需要确定目标 repository 与公开范围。
+公开源码 repository：https://github.com/612cs/drift-racer 。
+
+`.github/workflows/pages.yml` 在 `main` push 或手动触发时执行测试、构建、上传和 Pages 发布；测试失败时不发布。CI 将 README、PRD 与 gameplay 视频附加到静态站点，不需要 `npm install` 或额外 secrets。
+
+GitHub Pages 地址：https://612cs.github.io/drift-racer/ 。Gameplay 地址：https://612cs.github.io/drift-racer/gameplay.mp4 。
