@@ -1,5 +1,7 @@
 # Drift Racer
 
+[在线试玩](https://612cs.github.io/drift-racer/) · [公开源码](https://github.com/612cs/drift-racer) · [Gameplay 视频](https://612cs.github.io/drift-racer/gameplay.mp4)
+
 浏览器端 2.5D 漂移计时赛车。依据 [PRD.md](PRD.md) 实现，使用原生 JavaScript、Canvas 2D、Web Audio API 和 localStorage；无需后端、第三方运行时依赖或外部素材请求。
 
 ## 运行
@@ -69,6 +71,7 @@ Ghost 在模拟过程中按 60 Hz 采样，保存时按时间重采样，保留�
 | `test/game.test.js` | 游戏规则与存档边界回归测试 |
 | `scripts/serve.mjs` | 本地 HTTP server |
 | `scripts/build.mjs` | 生成独立静态发布目录 |
+| `.github/workflows/pages.yml` | 测试、构建与 GitHub Pages 自动发布 |
 
 ## 验证记录
 
@@ -77,6 +80,7 @@ Ghost 在模拟过程中按 60 Hz 采样，保存时按时间重采样，保留�
 - Firefox、WebKit：使用加速输入驱动实际游戏模拟，完成三圈、显示结算，AudioContext 为 `running`。WebKit engine 验证不等同于原生 Safari 实机验证。
 - Chromium 中的 1920 × 1080 Canvas、高画质完整特效：每条赛道采集 600 个帧间隔，平均约 60 fps，p95 约 17.3–17.4 ms。Boost 边缘模糊使用尺寸缓存，避免逐帧执行 blur。
 - 冷缓存模拟网络：150 ms latency、1.6 Mbps 下载；首个内容绘制约 536 ms，页面加载完成约 1.12 s。以上为本机测量，不代表所有设备。
+- GitHub Pages 线上：实际键盘验证加速、转向、漂移、快速 Shift 和暂停；氮气 HUD 显示 `10%` 与 `NITRO IGNITION`，AudioContext 为 `running`。公开 MP4 已在浏览器中实际解码播放，1536 × 864、约 17.23 秒。
 
 ## Gameplay
 
