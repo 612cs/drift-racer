@@ -1,4 +1,5 @@
 import { SEGMENT_LENGTH, segmentAt } from './data.js';
+import { canvasSize } from './performance.js';
 
 const VIEW_SEGMENTS = 142;
 const CURVE_SCALE = .105;
@@ -199,6 +200,12 @@ export class Renderer {
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
+    this.scaleX = 1;
+    this.scaleY = 1;
+    this.devicePixelRatio = 0;
+    this.pixelBudget = Infinity;
+    this.quality = null;
+    this.resizeDirty = true;
     this.track = null;
     this.previousTime = null;
     this.previousZ = 0;
@@ -219,20 +226,38 @@ export class Renderer {
     this.particles = new ParticlePool(320);
     this.carOptions = { paint: 'standard', time: 0, nitro: false, shadow: true, brake: false };
     this.ghostOptions = { paint: 'ghost', ghost: true, shadow: false, time: 0 };
+    this.markResize = () => { this.resizeDirty = true; };
+    this.resizeObserver = typeof globalThis.ResizeObserver === 'function' ? new ResizeObserver(this.markResize) : null;
+    this.resizeObserver?.observe(canvas);
+    globalThis.addEventListener?.('resize', this.markResize);
     this.resize();
+  }
+
+  get needsResize() {
+    return this.resizeDirty || this.devicePixelRatio !== (globalThis.devicePixelRatio || 1);
+  }
+
+  resetClock() {
+    this.previousTime = null;
   }
 
   resize() {
     const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.round(rect.width || this.canvas.clientWidth || 1280));
-    const height = Math.max(1, Math.round(rect.height || this.canvas.clientHeight || 720));
-    const dpr = Math.min(this.low ? 1 : 2, globalThis.devicePixelRatio || 1);
-    if (this.width === width && this.height === height && this.dpr === dpr) return;
+    const cssWidth = rect.width || this.canvas.clientWidth || 1280;
+    const cssHeight = rect.height || this.canvas.clientHeight || 720;
+    this.low = this.quality === 'low' || (this.quality !== 'high' && Math.round(cssWidth) < 700);
+    this.devicePixelRatio = globalThis.devicePixelRatio || 1;
+    const { width, height, pixelWidth, pixelHeight, dpr } = canvasSize(cssWidth, cssHeight, this.devicePixelRatio, this.low ? 'low' : 'high', this.pixelBudget);
+    this.resizeDirty = false;
+    if (this.width === width && this.height === height && this.dpr === dpr && this.canvas.width === pixelWidth && this.canvas.height === pixelHeight) return;
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    this.canvas.width = Math.round(width * dpr);
-    this.canvas.height = Math.round(height * dpr);
+    this.scaleX = pixelWidth / width;
+    this.scaleY = pixelHeight / height;
+    this.canvas.width = pixelWidth;
+    this.canvas.height = pixelHeight;
+    if (this.boostBlur) this.boostBlur.width = 0;
     this.dayBucket = -1;
     const edge = this.ctx.createLinearGradient(0, 0, width, 0);
     edge.addColorStop(0, '#76cfff30');
@@ -244,8 +269,12 @@ export class Renderer {
 
   render(state, options = {}) {
     const time = options.time || 0;
-    this.low = options.quality === 'low' || (options.quality !== 'high' && this.width < 700);
-    this.resize();
+    const quality = options.quality ?? null;
+    const pixelBudget = options.pixelBudget ?? Infinity;
+    if (this.quality !== quality || this.pixelBudget !== pixelBudget) this.resizeDirty = true;
+    this.quality = quality;
+    this.pixelBudget = pixelBudget;
+    if (this.needsResize) this.resize();
     const ctx = this.ctx;
     const W = this.width;
     const H = this.height;
@@ -275,7 +304,7 @@ export class Renderer {
     this.cameraX = state.x * here.width / WIDTH_SCALE;
     this.prepareGeometry(state.track);
     const shake = clamp(state.shake || 0, 0, 1) * 10 + (state.boostTimer > 0 ? 1.5 : 0);
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0);
     ctx.save();
     if (shake) ctx.translate(Math.sin(time * 97) * shake, Math.cos(time * 83) * shake * .55);
     this.drawSky(state.track.theme, theme, time, here.curve);
@@ -741,15 +770,15 @@ export class Renderer {
   }
 
   getBoostBlur() {
-    const width = Math.round(this.width * this.dpr);
-    const height = Math.round(this.height * this.dpr);
+    const width = this.canvas.width;
+    const height = this.canvas.height;
     if (this.boostBlur?.width === width && this.boostBlur.height === height) return this.boostBlur;
     if (!this.boostBlur) this.boostBlur = document.createElement('canvas');
     const canvas = this.boostBlur;
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0);
     ctx.filter = 'blur(2px)';
     ctx.globalAlpha = .11;
     // Rasterize the static streaks only on viewport changes, not 24 blurred strokes per frame.

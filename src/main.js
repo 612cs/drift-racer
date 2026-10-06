@@ -3,11 +3,14 @@ import { Race } from './race.js';
 import { Store } from './save.js';
 import { Renderer, drawCar } from './renderer.js';
 import { AudioEngine } from './audio.js';
+import { AdaptiveQuality } from './performance.js';
 
 const $ = id => document.getElementById(id);
 const store = new Store();
 const renderer = new Renderer($('world'));
 const audio = new AudioEngine();
+const adaptiveQuality = new AdaptiveQuality();
+audio.onError = error => notice(`音频不可用：${error.message}。游戏仍可继续。`);
 const keys = new Set();
 const input = { throttle: 0, brake: 0, steer: 0, drift: false, nitro: false };
 const renderOptions = { time: 0, idealLine: true, quality: 'auto', paint: 'standard', goldTrail: false, preview: true };
@@ -22,14 +25,23 @@ let lastHud = 0;
 let lastPreview = 0;
 let toastTimer;
 let goUntil = 0;
-let slowFrames = 0;
-let effectiveQuality = 'high';
+let sceneDirty = true;
+let volumeDirty = false;
 let generation = 0;
 let starting = false;
 let nitroPressed = false;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const medalNames = { gold: '金牌', silver: '银牌', bronze: '铜牌' };
 const trackButtons = [];
+const hud = Object.fromEntries(['lap-label','lap-time','best-time','total-time','speed','needle','nitro-fill','nitro-number','combo','boost-label','ghost-delta','countdown'].map(id => [id, $(id)]));
+const hudValues = Object.create(null);
+const gaugeFill = document.querySelector('.gauge-fill');
+const nitroMeter = document.querySelector('.nitro-meter');
+function hudText(id, value) {
+  if (hudValues[id] === value) return;
+  hudValues[id] = value;
+  hud[id].textContent = value;
+}
 
 function notice(message, duration = 4500) {
   clearTimeout(toastTimer);
@@ -89,6 +101,7 @@ function updateMenu() {
   const car = CARS[carIndex];
   preview.track = track;
   preview.car = car;
+  sceneDirty = true;
   trackButtons.forEach((button, index) => {
     const item = TRACKS[index];
     const unlocked = store.isUnlocked('track', item.id);
@@ -108,7 +121,7 @@ function updateMenu() {
   $('car-lock').hidden = unlockedCar;
   $('car-lock').textContent = `锁定 · ${requirement(car)}`;
   $('start').disabled = !unlockedCar || !store.isUnlocked('track', track.id) || starting;
-  $('start').innerHTML = `${mode === 'time' ? '开始计时赛' : '进入自由练习'} <span>↗</span>`;
+  $('start').innerHTML = starting ? '正在准备音频…' : `${mode === 'time' ? '开始计时赛' : '进入自由练习'} <span>↗</span>`;
   $('mode-time').setAttribute('aria-pressed', String(mode === 'time'));
   $('mode-practice').setAttribute('aria-pressed', String(mode === 'practice'));
   $('ideal-line').closest('label').hidden = mode !== 'practice';
@@ -145,6 +158,8 @@ async function startRace() {
   starting = true;
   const token = ++generation;
   $('start').disabled = true;
+  $('start').textContent = '正在准备音频…';
+  audio.setTrack(track.id);
   audio.setActive(true);
   await unlockAudio();
   if (token !== generation) { starting = false; return; }
@@ -152,7 +167,6 @@ async function startRace() {
   clearInput();
   closeDialogs();
   race = new Race(track, car, mode, mode === 'time' ? store.getGhost(track.id, car.id) : null);
-  audio.setTrack(track.id);
   audio.setActive(true);
   document.body.classList.add('driving');
   $('menu').hidden = true;
@@ -164,6 +178,10 @@ async function startRace() {
   $('countdown').textContent = '3';
   accumulator = 0;
   goUntil = 0;
+  adaptiveQuality.reset();
+  renderer.resetClock();
+  lastTime = performance.now();
+  sceneDirty = true;
   updateHud();
   $('pause-button').focus({ preventScroll: true });
 }
@@ -185,6 +203,7 @@ function returnToMenu() {
 function pauseRace() {
   if (!race || !['racing', 'countdown'].includes(race.state.phase)) return;
   race.pause();
+  renderer.resetClock();
   clearInput();
   $('countdown').hidden = true;
   audio.setActive(false);
@@ -197,6 +216,8 @@ function resumeRace() {
   clearInput();
   race.resume();
   accumulator = 0;
+  renderer.resetClock();
+  lastTime = performance.now();
   audio.setActive(true);
   $('pause-button').focus({ preventScroll: true });
 }
@@ -223,29 +244,42 @@ function updateHud() {
   if (!race) return;
   const s = race.state;
   const practice = mode === 'practice';
-  $('lap-label').textContent = practice ? 'FREE PRACTICE / 自由练习' : `LAP ${String(Math.min(s.lap,3)).padStart(2,'0')} / 03`;
-  $('lap-time').textContent = practice ? '寻找你的路线' : formatTime(s.lapTime);
-  $('best-time').textContent = formatTime(Math.min(s.bestLap, store.getRecord(s.track.id, s.car.id)?.bestLap ?? Infinity));
-  $('total-time').textContent = practice ? '不限圈数' : formatTime(s.totalTime);
-  $('speed').textContent = String(Math.round(s.speed)).padStart(3, '0');
-  $('needle').style.transform = `rotate(${-120 + Math.min(s.speed / 280,1)*240}deg)`;
-  document.querySelector('.gauge-fill').style.strokeDashoffset = String(400 - Math.min(s.speed / 280, 1)*400);
-  $('nitro-fill').style.width = `${s.nitro}%`;
-  $('nitro-number').textContent = `${Math.floor(s.nitro)}%`;
-  document.querySelector('.nitro-meter').setAttribute('aria-valuenow', String(Math.round(s.nitro)));
-  $('combo').textContent = s.combo ? `DRIFT ×${s.combo}` : '';
-  $('combo').style.color = s.combo >= 3 ? '#ffd76e' : s.combo >= 2 ? '#c394ff' : '#7ad9ed';
-  $('boost-label').textContent = s.nitroTimer > 0 ? 'NITRO IGNITION' : s.boostTimer > 0 ? 'BOOST RELEASE' : '';
+  hudText('lap-label', practice ? 'FREE PRACTICE / 自由练习' : `LAP ${String(Math.min(s.lap,3)).padStart(2,'0')} / 03`);
+  hudText('lap-time', practice ? '寻找你的路线' : formatTime(s.lapTime));
+  hudText('best-time', formatTime(Math.min(s.bestLap, store.getRecord(s.track.id, s.car.id)?.bestLap ?? Infinity)));
+  hudText('total-time', practice ? '不限圈数' : formatTime(s.totalTime));
+  hudText('speed', String(Math.round(s.speed)).padStart(3, '0'));
+  const speedRatio = Math.round(Math.min(s.speed / 280, 1) * 1000) / 1000;
+  if (hudValues.speedRatio !== speedRatio) {
+    hudValues.speedRatio = speedRatio;
+    hud.needle.style.transform = `rotate(${-120 + speedRatio * 240}deg)`;
+    gaugeFill.style.strokeDashoffset = String(400 - speedRatio * 400);
+  }
+  const nitro = Math.round(s.nitro * 10) / 10;
+  if (hudValues.nitro !== nitro) {
+    hudValues.nitro = nitro;
+    hud['nitro-fill'].style.width = `${nitro}%`;
+  }
+  hudText('nitro-number', `${Math.floor(s.nitro)}%`);
+  const nitroValue = Math.round(s.nitro);
+  if (hudValues.nitroValue !== nitroValue) {
+    hudValues.nitroValue = nitroValue;
+    nitroMeter.setAttribute('aria-valuenow', String(nitroValue));
+  }
+  hudText('combo', s.combo ? `DRIFT ×${s.combo}` : '');
+  const comboColor = s.combo >= 3 ? '#ffd76e' : s.combo >= 2 ? '#c394ff' : '#7ad9ed';
+  if (hudValues.comboColor !== comboColor) { hudValues.comboColor = comboColor; hud.combo.style.color = comboColor; }
+  hudText('boost-label', s.nitroTimer > 0 ? 'NITRO IGNITION' : s.boostTimer > 0 ? 'BOOST RELEASE' : '');
   const delta = s.ghostDelta;
-  $('ghost-delta').textContent = delta === null ? practice ? '' : 'GHOST / 首次挑战，创造你的纪录' : `${delta >= 0 ? '领先 +' : '落后 −'}${Math.abs(delta).toFixed(2)}s`;
-  $('ghost-delta').style.color = delta === null ? '#ddd' : delta >= 0 ? '#82e9b5' : '#ff8793';
-  if (s.phase === 'countdown') {
-    $('countdown').hidden = false;
-    $('countdown').textContent = String(Math.max(1, Math.ceil(s.countdown)));
-  } else if (s.phase === 'racing' && performance.now() < goUntil) {
-    $('countdown').hidden = false;
-    $('countdown').textContent = 'GO!';
-  } else $('countdown').hidden = true;
+  hudText('ghost-delta', delta === null ? practice ? '' : 'GHOST / 首次挑战，创造你的纪录' : `${delta >= 0 ? '领先 +' : '落后 −'}${Math.abs(delta).toFixed(2)}s`);
+  const ghostColor = delta === null ? '#ddd' : delta >= 0 ? '#82e9b5' : '#ff8793';
+  if (hudValues.ghostColor !== ghostColor) { hudValues.ghostColor = ghostColor; hud['ghost-delta'].style.color = ghostColor; }
+  const counting = s.phase === 'countdown';
+  const showGo = s.phase === 'racing' && performance.now() < goUntil;
+  const hidden = !counting && !showGo;
+  if (hud.countdown.hidden !== hidden) hud.countdown.hidden = hidden;
+  if (counting) hudText('countdown', String(Math.max(1, Math.ceil(s.countdown))));
+  else if (showGo) hudText('countdown', 'GO!');
 }
 function processEvent(event) {
   if (event.type === 'finish') { finishRace(); return; }
@@ -256,16 +290,18 @@ function processEvent(event) {
   showAchievements(store.recordEvent(event));
 }
 function renderFrame(now) {
-  const frameDt = Math.min((now - lastTime) / 1000, .1);
+  const frameMs = now - lastTime;
+  const frameDt = Math.min(frameMs / 1000, .1);
   lastTime = now;
-  slowFrames = frameDt > .023 ? slowFrames + 1 : Math.max(0, slowFrames - .25);
-  if (slowFrames > 30) effectiveQuality = 'low';
-  else if (slowFrames < 2) effectiveQuality = 'high';
-  renderOptions.time = now / 1000;
-  renderOptions.quality = store.data.settings.quality === 'auto' ? effectiveQuality : store.data.settings.quality;
+  if (document.hidden) { requestAnimationFrame(renderFrame); return; }
+  const active = race && (race.state.phase === 'racing' || race.state.phase === 'countdown');
+  const quality = store.data.settings.quality;
+  if (active) adaptiveQuality.update(frameMs, now);
+  renderOptions.quality = quality === 'auto' ? adaptiveQuality.quality : quality;
+  renderOptions.pixelBudget = quality === 'auto' ? (renderOptions.quality === 'low' ? 1_500_000 : 3_000_000) : Infinity;
   renderOptions.paint = store.data.settings.paint;
   renderOptions.goldTrail = store.data.achievements.includes('combo_master');
-  if (race) {
+  if (active) {
     input.throttle = keys.has('ArrowUp') || keys.has('KeyW') ? 1 : 0;
     input.brake = keys.has('ArrowDown') || keys.has('KeyS') ? 1 : 0;
     input.steer = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
@@ -279,18 +315,26 @@ function renderFrame(now) {
       for (const event of race.events) processEvent(event);
       accumulator -= 1/60;
     }
+  }
+  if (race && (active || sceneDirty || renderer.needsResize)) {
+    if (active) renderOptions.time = now / 1000;
     renderOptions.preview = false;
     renderOptions.idealLine = mode === 'practice' && store.data.settings.idealLine;
     renderer.render(race.state, renderOptions);
-    audio.update(race.state);
-    if (now - lastHud > 33) { updateHud(); lastHud = now; }
-  } else if (now - lastPreview >= (reducedMotion.matches ? 1000 : 50)) {
+    if (active) {
+      audio.update(race.state);
+      if (now - lastHud > 33) { updateHud(); lastHud = now; }
+    }
+    sceneDirty = false;
+  } else if (!race && (sceneDirty || renderer.needsResize || now - lastPreview >= (reducedMotion.matches ? 1000 : 50))) {
     preview.z = reducedMotion.matches ? 180 : (now / 1000 * 24) % preview.track.length;
+    renderOptions.time = now / 1000;
     renderOptions.preview = true;
     renderOptions.idealLine = false;
     renderer.render(preview, renderOptions);
     audio.update(preview);
     lastPreview = now;
+    sceneDirty = false;
   }
   requestAnimationFrame(renderFrame);
 }
@@ -311,8 +355,14 @@ $('result-dialog').addEventListener('cancel', event => { event.preventDefault();
 
 function saveSettings(patch) {
   store.settings(patch);
+  volumeDirty = false;
+  sceneDirty = true;
   configureAudio();
   storageStatus();
+}
+function flushVolume() {
+  if (!volumeDirty) return;
+  saveSettings({ volume: store.data.settings.volume });
 }
 for (const id of ['ideal-line','race-ideal-line']) $(id).addEventListener('change', event => {
   saveSettings({ idealLine: event.target.checked });
@@ -333,8 +383,12 @@ $('settings-button').addEventListener('click', () => {
 });
 $('volume').addEventListener('input', event => {
   $('volume-value').textContent = `${event.target.value}%`;
-  saveSettings({ volume: Number(event.target.value)/100 });
+  store.data.settings.volume = Number(event.target.value) / 100;
+  volumeDirty = true;
+  audio.configure({ volume: store.data.settings.volume });
 });
+$('volume').addEventListener('change', flushVolume);
+$('settings-dialog').addEventListener('close', flushVolume);
 for (const id of ['music','sfx']) $(id).addEventListener('change', event => saveSettings({ [id]: event.target.checked }));
 for (const id of ['quality','paint']) $(id).addEventListener('change', event => { saveSettings({ [id]: event.target.value }); updateMenu(); });
 $('settings-close').addEventListener('click', () => { uiSound(); $('settings-dialog').close(); });
@@ -374,10 +428,11 @@ addEventListener('keydown', event => {
 addEventListener('keyup', event => keys.delete(event.code));
 addEventListener('blur', () => { clearInput(); pauseRace(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { clearInput(); pauseRace(); audio.setActive(false); }
+  renderer.resetClock();
+  if (document.hidden) { flushVolume(); clearInput(); pauseRace(); audio.setActive(false); }
   else if (!race || race.state.phase !== 'paused') audio.setActive(true);
 });
-addEventListener('pagehide', () => audio.close());
+addEventListener('pagehide', () => { ++generation; flushVolume(); audio.close(); });
 configureAudio();
 $('ideal-line').checked = store.data.settings.idealLine;
 updateMenu();
