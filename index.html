@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#05070c">
+  <meta name="description" content="Drift Racer — 伪3D街机漂移赛车。三条赛道、四辆赛车，和自己的Ghost争夺每一毫秒。">
+  <title>Drift Racer · 每一道弯，都是下一次突破</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect rx='14' width='64' height='64' fill='%2305070c'/%3E%3Cpath d='M14 44L25 16h13l12 28H38l-4-13-8 13z' fill='%23ffd76e'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./src/main.js"></script>
+</head>
+<body>
+  <canvas id="world" aria-label="赛车赛道与车辆画面"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
+  <main id="menu" class="menu">
+    <header class="topbar"><a class="brand" href="./" aria-label="Drift Racer 首页"><span class="brand-mark">//</span> DRIFT<span>RACER</span></a><div class="top-actions"><span class="online-dot">LOCAL / SINGLE PLAYER</span><button id="achievements-button" class="quiet">成就 <span id="achievement-count">0 / 6</span></button><button id="settings-button" class="quiet">设置</button></div></header>
+    <section class="hero"><div><p class="eyebrow"><span></span> THE ART OF THE PERFECT CORNER</p><h1>CHASE THE<br><em>APEX.</em></h1><p class="intro">每一道弯，都是下一次突破。<br>漂移蓄能，冲出弯心，挑战你自己的最佳纪录。</p></div><div class="hero-note"><span>01 — 03</span><p>三条路线。四种性格。<br>一个值得追逐的自己。</p><div class="line-art" aria-hidden="true"><svg viewBox="0 0 240 72"><path d="M0 53C58 53 45 10 93 10S134 64 180 64 214 23 240 23"/><path d="M0 63C58 63 45 20 93 20S134 74 180 74 214 33 240 33"/></svg></div></div></section>
+    <section class="track-section" aria-labelledby="track-heading"><div class="section-heading"><h2 id="track-heading"><span>01</span> 选择赛道</h2><span class="micro">SELECT YOUR ROAD</span></div><div id="tracks" class="track-grid"></div></section>
+    <section class="garage" aria-labelledby="car-heading"><div class="section-heading"><h2 id="car-heading"><span>02</span> 选择座驾</h2><span id="car-index" class="micro">01 / 04</span></div><div class="car-row"><button id="previous-car" class="arrow" aria-label="上一辆车">←</button><canvas id="car-preview" width="300" height="128" aria-label="已选择赛车外观"></canvas><div class="car-info"><p id="car-title" class="micro"></p><h3 id="car-name"></h3><p id="car-description"></p></div><div id="car-stats" class="car-stats"></div><button id="next-car" class="arrow" aria-label="下一辆车">→</button></div><p id="car-lock" class="lock-note" hidden></p></section>
+    <footer class="launch"><div class="launch-options"><div class="segmented" aria-label="比赛模式"><button id="mode-time" aria-pressed="true">计时赛 <span>3 LAPS</span></button><button id="mode-practice" aria-pressed="false">自由练习</button></div><label class="ideal-option"><input id="ideal-line" type="checkbox" checked> 理想路线辅助</label></div><button id="start" class="primary">开始计时赛 <span>↗</span></button></footer>
+    <div class="control-strip"><span><kbd>↑</kbd><kbd>↓</kbd> 油门 / 刹车 <kbd>←</kbd><kbd>→</kbd> 转向</span><span><kbd>SPACE</kbd> 按住漂移 · 松开 Boost</span><span><kbd>SHIFT</kbd> 氮气</span><span><kbd>ESC</kbd> 暂停 <kbd>R</kbd> 重跑当前圈</span></div>
+    <p class="small-screen-note">驾驶需要键盘，建议在桌面浏览器中体验。</p>
+  </main>
+  <section id="hud" class="hud" aria-label="比赛状态" hidden>
+    <div class="timing"><p class="eyebrow" id="hud-track"></p><div class="lap-line"><span id="lap-label">LAP 01 / 03</span><button id="pause-button" class="quiet">暂停 <kbd>ESC</kbd></button></div><strong id="lap-time">00:00.000</strong><div class="timing-detail"><span>BEST LAP <b id="best-time">—</b></span><span>TOTAL <b id="total-time">00:00.000</b></span></div></div>
+    <div class="race-top"><p id="ghost-delta"></p><strong id="combo"></strong><span id="boost-label"></span></div>
+    <div class="race-bottom"><p id="race-hint"><kbd>↑ / W</kbd> 加速　<kbd>SPACE</kbd> 漂移　<kbd>SHIFT</kbd> 氮气</p><label id="practice-line" hidden><input id="race-ideal-line" type="checkbox" checked> 理想路线</label></div>
+    <div class="speedometer"><svg viewBox="0 0 200 150" aria-hidden="true"><path class="gauge-track" d="M30 127 A82 82 0 1 1 170 127"/><path class="gauge-fill" d="M30 127 A82 82 0 1 1 170 127"/><g id="needle"><path d="M100 91L100 20"/><circle cx="100" cy="91" r="5"/></g></svg><div class="speed-number"><strong id="speed">000</strong><span>KM / H</span></div><div class="nitro-caption"><span>N₂O / NITRO</span><b id="nitro-number">0%</b></div><div class="nitro-meter" role="progressbar" aria-label="氮气储量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="nitro-fill"></span><i></i></div></div>
+  </section>
+  <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
+  <dialog id="pause-dialog"><div class="dialog-head"><p class="eyebrow">TAKE A BREATH</p><h2>弯道，还在等你。</h2><p id="pause-stats"></p></div><div class="dialog-actions"><button id="resume" class="primary">继续比赛 →</button><button id="restart-race" class="secondary">重新开始比赛</button><button id="exit-race" class="quiet">返回主菜单</button></div></dialog>
+  <dialog id="result-dialog"><div class="dialog-head"><p class="eyebrow">FINISH LINE / RACE COMPLETE</p><div id="result-medal" class="result-medal"></div><h2 id="result-title">漂亮的三圈。</h2><p id="result-track"></p></div><div class="result-times"><div><span>最快单圈</span><strong id="result-best"></strong></div><div><span>三圈总时间</span><strong id="result-total"></strong></div></div><div id="result-laps" class="result-laps"></div><p id="result-detail"></p><div id="result-unlocks" class="result-unlocks"></div><div class="dialog-actions horizontal"><button id="try-again" class="primary">再次挑战 ↗</button><button id="result-menu" class="secondary">返回车库</button></div></dialog>
+  <dialog id="settings-dialog"><div class="dialog-head"><p class="eyebrow">MAKE IT YOURS</p><h2>设置</h2></div><div class="settings-fields"><label>主音量 <output id="volume-value">65%</output><input id="volume" type="range" min="0" max="100" value="65"></label><label class="switch-row">背景音乐 <input id="music" type="checkbox" checked></label><label class="switch-row">游戏音效 <input id="sfx" type="checkbox" checked></label><label>画质<select id="quality"><option value="auto">自动 · 低帧率时降低特效</option><option value="high">高 · 完整特效</option><option value="low">低 · 减少粒子与远景</option></select></label><label>成就车漆<select id="paint"><option value="standard">原厂车漆</option><option value="aurora">极光 · 零碰撞完赛解锁</option><option value="ghost">幽灵 · 击败 Ghost 十次解锁</option></select></label><p class="settings-note">设置与纪录保存在当前浏览器。切换浏览器不会共享进度。</p></div><button id="settings-close" class="primary">保存并返回</button></dialog>
+  <dialog id="achievements-dialog"><div class="dialog-head"><p class="eyebrow">THE ROAD TO LEGEND</p><h2>你的车手履历</h2></div><div id="achievements" class="achievement-grid"></div><button id="achievements-close" class="primary">返回车库</button></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
+</body>
+</html>

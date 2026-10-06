@@ -1,0 +1,15 @@
+{
+  "name": "drift-racer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canvas 2D arcade drift time trials",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs --dir dist",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}
